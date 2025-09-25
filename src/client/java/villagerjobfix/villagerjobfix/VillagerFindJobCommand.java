@@ -3,13 +3,13 @@ package villagerjobfix.villagerjobfix;
 import java.util.Comparator;
 import java.util.List;
 
+import org.joml.Math;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.mojang.brigadier.Command;
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
-
 
 import net.minecraft.entity.ai.brain.MemoryModuleType;
 import net.minecraft.entity.effect.StatusEffectInstance;
@@ -28,6 +28,7 @@ import net.minecraft.util.math.Box;
 import net.minecraft.util.math.GlobalPos;
 
 import net.minecraft.village.VillagerData;
+import net.minecraft.village.VillagerProfession;
 
 
 public class VillagerFindJobCommand {
@@ -83,15 +84,24 @@ public class VillagerFindJobCommand {
         ServerPlayerEntity  player = source.getPlayer(); // Get the player who executed the command
 
         ServerWorld world =  source.getWorld();
-        List<VillagerEntity> notTradedVillager = world.getEntitiesByClass(VillagerEntity.class, Box.of(player.getPos(), radius,radius,radius), villager -> villager.getExperience() == 0).subList(0, limit);;
+        List<VillagerEntity> notTradedVillager = world.getEntitiesByClass(VillagerEntity.class, Box.of(player.getPos(), radius,radius,radius), villager -> villager.getExperience() == 0);
+        notTradedVillager.sort(Comparator.comparingDouble(villager ->player.getPos().distanceTo(villager.getPos()) ));
+        
+        if (notTradedVillager.isEmpty()) {
+            source.sendError(Text.literal("No villager found").formatted(Formatting.RED));
+            return 0; // Failure
+        }
+
+        notTradedVillager = notTradedVillager.subList(0, Math.min(limit, notTradedVillager.size()));
         
         List<ProfessionPOI> pois = VillagerFindJobUtils.findPOI(world, player.getBlockPos(), radius);
 
         for (VillagerEntity villagerEntity : notTradedVillager) {
+            
             ProfessionPOI closestPoi = findClosestPoi(villagerEntity, pois);
             if (closestPoi == null) {
                 source.sendFeedback(
-                    () -> Text.literal("No POI found for villager at " + villagerEntity.getBlockPos()),
+                    () -> Text.literal("No POI found for villager at " + villagerEntity.getBlockPos().toShortString()),
                     false
                     );
                     continue;
@@ -100,8 +110,8 @@ public class VillagerFindJobCommand {
             BlockPos poiPos = closestPoi.poi().getPos();
             
             source.sendFeedback(
-                () -> Text.literal("Villager at " + villagerEntity.getBlockPos() + 
-                             " closest POI: " + poiPos),
+                () -> Text.literal("Villager at " + villagerEntity.getBlockPos().toShortString() + 
+                             " closest POI: " + poiPos.toShortString()),
                 false
             );
             
@@ -116,11 +126,23 @@ public class VillagerFindJobCommand {
                 0.25, // spread Z
                 0.05  // speed
             );
-            villagerEntity.getBrain().remember(MemoryModuleType.JOB_SITE,
-                GlobalPos.create(world.getRegistryKey(), poiPos));
-            VillagerData villagerData = villagerEntity.getVillagerData().withProfession(closestPoi.profession());
-            villagerEntity.setVillagerData(villagerData);
+
+            villagerEntity.getBrain().remember(
+                MemoryModuleType.JOB_SITE,
+                GlobalPos.create(world.getRegistryKey(), poiPos)
+            );
+            VillagerData resetData = villagerEntity.getVillagerData().withProfession(world.getRegistryManager().getEntryOrThrow(VillagerProfession.NONE));
+            villagerEntity.setVillagerData(resetData);
+
+            // 3. Reinitialize brain after resetting
             villagerEntity.reinitializeBrain(world);
+
+            // 4. Assign the desired profession
+            VillagerData newData = villagerEntity.getVillagerData().withProfession(closestPoi.profession());
+            villagerEntity.setVillagerData(newData);
+
+            villagerEntity.reinitializeBrain(world);
+            
             villagerEntity.addStatusEffect(new StatusEffectInstance(StatusEffects.GLOWING, 40, 0, false, false));
         }
      
