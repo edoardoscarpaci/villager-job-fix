@@ -23,11 +23,6 @@
 		]
 	},
 	"mixins": [
-		"villager-job-fix.mixins.json",
-		{
-			"config": "villager-job-fix.client.mixins.json",
-			"environment": "client"
-		}
 	],
 	"depends": {
 		"fabricloader": ">=0.17.2",
